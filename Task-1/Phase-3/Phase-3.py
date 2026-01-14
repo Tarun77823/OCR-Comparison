@@ -5,8 +5,12 @@ import cv2
 from PIL import Image
 import pytesseract
 from pytesseract import Output
+
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-IMAGE_FOLDER = "images"
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TASK1_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+IMAGE_FOLDER = os.path.join(TASK1_ROOT, "images")
 
 # Phase-1 Timing summary
 SECONDS_PER_IMAGE = 0.6638
@@ -27,8 +31,8 @@ VOLUMES = [
 #thresholds(Phase-3)
 ACCEPT_CONF = 85.0
 ESCALATE_CONF = 60.0
+
 def confidence(img) -> float:
-    
     data = pytesseract.image_to_data(img, output_type=Output.DICT)
     confs = []
     for c in data.get("conf", []):
@@ -39,7 +43,6 @@ def confidence(img) -> float:
         except:
             pass
     return sum(confs) / max(len(confs), 1)
-
 
 def preprocess_cv(image_path: str):
     img = cv2.imread(image_path)
@@ -55,19 +58,15 @@ def preprocess_cv(image_path: str):
     )
     return processed
 
-
 def workers_needed(images_per_day: int) -> int:
     sec = images_per_day * SECONDS_PER_IMAGE * OVERHEAD
     return max(1, math.ceil(sec / SECONDS_PER_DAY))
 
-
 def library_cost_per_day(workers: int) -> float:
     return workers * CPU_COST_PER_VCPU_HOUR * 24
 
-
 def api_cost_per_day(images_per_day: int, escalation_rate: float) -> float:
     return images_per_day * escalation_rate * API_COST_PER_IMAGE
-
 
 def flags(workers: int, api_cost: float) -> str:
     f = []
@@ -82,7 +81,8 @@ def flags(workers: int, api_cost: float) -> str:
         f.append("WARN: high API spend")
 
     return " | ".join(f) if f else "OK"
-# Phase-3 
+
+# Phase-3
 def main():
     print("\nPHASE 3 - Hybrid OCR (Library-first + confidence routing + API fallback)\n")
 
@@ -159,7 +159,7 @@ def main():
     print("  escalation rate:", f"{escalation_rate*100:.2f}%")
     print("  run time (sec):", round(elapsed, 2))
 
-    # Hybrid cost table 
+    # Hybrid cost table
     print("\nHybrid Cost Table (Traditional OCR for all + AI only for escalations)\n")
     print(f"{'Volume':12} {'Images/day':12} {'Workers':8} {'Library $/day':14} {'API $/day':14} {'Total $/day':14} {'Notes'}")
     print("-" * 95)
@@ -174,7 +174,6 @@ def main():
         print(f"{label:12} {imgs_day:<12,} {w:<8} ${lib:<13,.2f} ${api:<13,.2f} ${total_cost:<13,.2f} {note}")
 
     print("\nDone.\n")
-
 
 if __name__ == "__main__":
     main()

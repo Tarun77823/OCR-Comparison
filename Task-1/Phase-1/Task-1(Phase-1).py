@@ -7,7 +7,11 @@ from pytesseract import Output
 import re
 #path configuration
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-IMAGE_FOLDER = "images"#folder where images stored
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TASK1_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+IMAGE_FOLDER = os.path.join(TASK1_ROOT, "images")
+
 # functions
 def edit_distance(a, b):#function to caluculate edit distance
     dp = list(range(len(b) + 1))
@@ -22,7 +26,14 @@ def edit_distance(a, b):#function to caluculate edit distance
 
 def confidence(img):#fnctn to caluculte confidence score
     data = pytesseract.image_to_data(img, output_type=Output.DICT)
-    confs = [c for c in data["conf"] if isinstance(c, int) and c >= 0]
+    confs = []
+    for c in data["conf"]:
+        try:
+            c = float(c)
+            if c >= 0:
+                confs.append(c)
+        except:
+            pass
     return sum(confs) / max(len(confs), 1)
 
 def count_chars(text): return len(text)# character count
@@ -30,6 +41,7 @@ def count_words(text): return len(text.split())# word count
 def count_numbers(text): return len(re.findall(r"\d+", text))#Number count
 def count_specials(text): return len(re.findall(r"[^\w\s]", text))#Special characters
 def count_lines(text): return len(text.splitlines())#Line count
+
 for image_name in os.listdir(IMAGE_FOLDER):#Loop images
 
     if not image_name.lower().endswith((".jpg", ".jpeg", ".png")):

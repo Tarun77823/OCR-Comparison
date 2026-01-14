@@ -5,11 +5,14 @@ from PIL import Image
 import pytesseract
 from pytesseract import Output
 import re
-import time  # ✅ added for timing
+import time
 
 #path configuration
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-IMAGE_FOLDER = "images"  # folder where images stored
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TASK1_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+IMAGE_FOLDER = os.path.join(TASK1_ROOT, "images")
 
 #timing
 start_time = time.time()

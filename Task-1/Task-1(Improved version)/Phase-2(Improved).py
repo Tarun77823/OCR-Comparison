@@ -1,4 +1,5 @@
 import math
+import os
 
 # from Phase-1
 SECONDS_PER_IMAGE = 0.6638

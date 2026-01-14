@@ -6,7 +6,10 @@ import pytesseract
 from pytesseract import Output
 
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-IMAGE_FOLDER = "images"
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TASK1_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+IMAGE_FOLDER = os.path.join(TASK1_ROOT, "images")
 
 ACCEPT_CONF = 85.0
 ESCALATE_CONF = 60.0
