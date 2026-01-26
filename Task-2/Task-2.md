@@ -1,157 +1,158 @@
-# Task 2 — Infrastructure & System Sharding at Global Scale (MeCentral)
-### Executive Summary 
-This document proposes a region-based infrastructure sharding strategy for MeCentral, supported by simulation-based analysis of latency, routing behavior, failure blast radius, and scaling cost. The design prioritizes low latency, strong failure isolation, operational simplicity, and incremental scalability. More complex architectures such as global active-active writes and cell-based systems are intentionally deferred to later stages to avoid unnecessary operational risk.
+# Task 2 — Infrastructure & System Sharding at Global Scale (Security-First)
 
+## Executive Summary
+At global scale, infrastructure sharding is not “split by region.” It’s a set of decisions about:
+- **Correctness**: where authoritative writes land
+- **Performance**: where reads are served
+- **Security**: what fails closed vs what degrades
+- **Blast radius**: how to prevent incidents from becoming global
 
-# Modeling Assumptions and Scope
-The Python scripts used in this task are analysis tools, not production implementations.
--Latency values represent approximate, order-of-magnitude delays commonly seen in distributed systems.
--Cost values are expressed in arbitrary units to compare growth trends, not real cloud pricing.
--Traffic patterns and user distributions are simplified to make tradeoffs easier to reason about.
-The purpose of these models is to support architectural decisions, not to provide exact capacity planning.
+This design uses:
+- **Identity-based sharding** (stable user home shard for correctness)
+- **Regions** for performance (read-local when safe)
+- **Cells** as the primary isolation boundary (deployment + fault containment)
+- **Tiered failure policy**: degrade only safe ops; fail closed for sensitive ops
 
+Key principle:
+> Shards protect correctness & security. Regions optimize performance. Cells bound blast radius.
 
-# Relationship to Task 1
-Task 1 focused on analyzing performance and cost at the individual workflow level. Task 2 extends that work to a global context, examining how those workflows behave across regions under latency, failures, and scaling pressure. Insights from Task 1 directly informed decisions around caching, routing, and replication in this design.
+---
 
+## Assumptions (Explicit)
+- Partial failures are normal (dependency outages, cell outages, region brownouts).
+- Security-sensitive decisions require stronger consistency than general content.
+- Compliance/data residency exists; routing must respect residency constraints.
 
-### Part 1 - Latency Analysis
-# What this part addresses
-In global systems, latency is not just database access time. It is the sum of DNS resolution, TLS handshakes, gateway hops, service calls, caching behavior, storage access, and sometimes cross-region network calls.
-# What was done
-A Python script models multiple request scenarios:
--Local cache hit
--Local cache miss
--Cross-region dependency
--Edge validation with regional reads
-# Key insight
-Cross-region calls dominate end-to-end latency. Even when services are fast, a single synchronous cross-region dependency can add more delay than all local processing combined.
-# This supports:
--routing users to the nearest region
--performing authentication and caching close to users
--avoiding synchronous cross-region calls on common request paths
-# Supporting script:(<latency analysis(1).py>)
+---
 
+## (1) Sharding Models: What Can Be Partitioned?
+You can shard:
+- **Traffic** (GSLB/DNS, anycast ingress)
+- **Compute** (stateless services by region/cell)
+- **State** (datastores; identity metadata; user content)
+- **Control plane** (policy, placement metadata, deployment management)
 
-### Part 2 — Traffic Routing and Sharding 
-# What this part addresses
-When a request arrives, the system must decide:
--which region should handle it
--how to balance latency and correctness
--how to behave during failures
-# Routing strategy analyzed
-The routing simulation models the following rules:
--READ requests → nearest healthy region
--WRITE requests → user’s home region
--Home region unavailable → queue writes or enter read-only  mode
-# Why this matters
-Reads are typically safe to serve from multiple regions, while writes require a single source of truth to avoid conflicts and corruption. The simulation shows that this strategy preserves correctness while maintaining availability for read traffic.
-# Supporting script:(<Routing and sharding(2).py>)
+### Model comparison
+|           Model                 |                 Pros                     |                        Cons                                        |         
+| Region-based sharding           | low latency locally                      | high blast radius, user travel breaks correctness, unsafe failover |
+| Active-active global writes     | low latency writes                       | conflict resolution complexity, security + correctness hard        |
+| Read-local                      | fast reads + correct writes              | writes may queue/fail if home unavailable                          |
+| Cells                           | small blast radius, safe rollouts        | higher initial architecture discipline                             |
 
+---
 
-### Part 3 — Availability and Blast Radius
-# What this part addresses
-Failures are inevitable. The key question is how much of the system is affected when something breaks (blast radius).
-# What was analyzed
-Two categories of failures were simulated:
--Region failure — only users primarily served by that region are affected.
--Service failure — different services have different impact levels.
-Authentication failures have the largest blast radius, while vault or metadata failures can allow partial functionality.
-# Key insight
-Strong isolation boundaries (regions, clusters, or cells) significantly reduce blast radius. Graceful degradation is far preferable to total system outages.
-# Supporting script:(<Failure blast radius(3).py>)
+## (2) Latency: Where Time Goes
+Latency drivers:
+- handshake (TLS) + gateway
+- cross-region RPC (dominant)
+- cache misses and storage IO
+- auth/policy checks
 
+Rules:
+- Verify tokens close to users (regional/edge)
+- Serve non-sensitive reads from regional cache/replicas
+- Route writes to the **user’s home shard**
+- Keep policy/authz/session revocation on a strongly consistent path (or home)
 
-### Part 4 — Scaling Trajectory and Cost 
-# What this part addresses
-Scaling is not only about handling more users. It also increases replication traffic, operational burden, and cost.
-# What was done
-A Python model estimates:
--request growth as users increase
--compute needs across phases
--replication overhead as regions increase
-Three phases were analyzed:
--Early (10k–100k users)
--Growth (1M–10M users)
--Global (50M+ users)
-# Key insight
-Compute scales roughly with traffic, but replication and operational complexity scale with the number of regions. This supports adding regions gradually and keeping early architectures simple.
-# Supporting script:(<scaling cost analysis(4).py>)
+---
 
+## (3) Failure Domains and Isolation
+We assume:
+- cell failures, AZ failures
+- dependency outages: auth, policy, risk engine, audit, KMS
+- region outages
 
-###  High-Level Infrastructure Layout 
+Isolation hierarchy:
+Instance → AZ → **Cell** → Shard → Region → Global
 
+Goal:
+- incidents stop at **Cell** or **Shard**, not global.
+
+---
+
+## (4) Proposed Topology
 User
-  |
-  v
-Geo Routing (DNS / Anycast)
-  |
-  v
- -----------------------------
-|        Region (US)          |
-|                             |
-|  Edge Auth + Cache          |
-|        |                    |
-|  API Gateway                |
-|        |                    |
-|  Core Services              |
-|  (Auth, Vault, Metadata)    |
-|        |                    |
-|  Regional Cache             |
-|        |                    |
-|  Regional Storage           |
- -----------------------------
-          |
-          v
-   Async Replication / Events
-          |
-------------------------------
-|     Other Regions          |
-------------------------------
+|
+Global DNS / GSLB
+|
+Nearest healthy Region
+|
+Ingress/API Gateway
+|
+Auth token verify + coarse rate limiting
+|
+Cell Router
+|--- READ path: regional cache/replica (if residency allows)
+|--- WRITE path: resolve home shard -> home cell -> primary DB
 
 
-### Security Considerations
-Authentication and identity services are treated as critical dependencies because incorrect behavior can lead to unauthorized access or data leakage.
-# To reduce latency without weakening security:
--Token validation can occur at the edge using signed tokens.
--Sensitive authorization and policy enforcement remain regional.
-# During failures, the system should fail closed:
--block writes and sensitive operations rather than risk corruption
--treat identity records and audit logs as hard-state data requiring durable storage.
-Control-plane access is tightly restricted, and cached configurations allow data-plane services to continue operating during control-plane outages.
+---
 
+## (5) Efficient User Sharding (Identity-Based)
+### Stable home shard
+Assign once at creation time:
+- **home_shard = HRW(user_id, ACTIVE_SHARDS)** (Rendezvous hashing)
 
-### Design Decisions and Tradeoffs
-Several alternatives were intentionally not chosen for the baseline design:
--Global active-active writes were avoided due to high consistency complexity and difficult failure handling.
--Cell-based architectures were deferred because they introduce significant operational overhead and are better suited for later stages.
--Synchronous cross-region dependencies were minimized due to their dominant impact on latency and failure coupling.
-These choices prioritize clarity, predictable failure modes, and operational simplicity.
+Why HRW instead of modulo?
+- `hash % N` reshuffles a huge fraction of users when N changes.
+- HRW minimizes movement when adding/removing shards.
 
-### Key Tradeoffs Summary
-   # Decision	                                        Benefit	                                              Tradeoff
-Regional sharding	                          Low latency, isolated failures	                        Replication complexity
-Read-local routing	                                 Fast global reads	                                Eventual consistency
-Write-home model	                                 Strong correctness	                           Slower writes during failover
-Multi-layer caching	                            Performance and cost savings	                   Cache invalidation complexity
-Deferred cell architecture	                          Simpler early ops	                           Less isolation than full cells
+### Placement service (decouple “which shard” vs “where it lives”)
+- Shard membership is stable (**ACTIVE_SHARDS**).
+- Placement maps shard → region/cell and can change during evacuation/moves.
 
+---
 
-### Final Infrastructure Sharding Design Summary 
-MeCentral should use a region-based infrastructure sharding model as its baseline.
+## (6) Cells as the Primary Blast Radius Boundary
+- Each region is divided into many **cells**
+- A cell is the deployment + monitoring + recovery boundary
+- Shards are placed into cells; cell outage affects only shards in that cell
 
-Each region operates as a mostly independent unit, serving nearby users to minimize latency and containing failures within regional boundaries. Read requests are routed to the nearest healthy region, while write requests are routed to a user’s home region to preserve correctness. When the home region is unavailable, writes are safely queued or the system enters a controlled read-only mode.
+---
 
-Caching is applied at multiple layers (edge, regional, service-local) to reduce storage load and improve performance. Authentication and audit logging are treated as high-criticality components with strict failure behavior.
+## (7) Security-First Failure Policy (Fail Closed)
+We classify operations:
 
-This design is realistic to operate, cost-aware, and provides a clear path to more advanced isolation models as the system grows.
+- **Tier-0**: public reads
+- **Tier-1**: basic reads / low-value actions (can degrade with guardrails)
+- **Tier-2**: PII, exports, permission changes, token issuance, high-value actions (fail closed)
 
+### Dependency failure matrix
+| Dependency Down | Tier-1 | Tier-2 |
+|---|---|---|
+| Auth | DENY | DENY |
+| Policy | DENY | DENY |
+| Risk engine | ALLOW degraded + coarse limits | DENY for sensitive/high-risk |
+| Audit | allow safe reads only | DENY exports/perm changes |
+| KMS | read-only if possible | DENY export/rotate/crypto |
+| Placement | allow short cached routing | writes blocked if cache stale |
 
-### Future Work and Next Steps
-If MeCentral continues to scale, future improvements would include:
--Introducing cell-based isolation for high-risk or high-traffic tenants
--Improving cross-region observability and tracing
--Defining formal SLOs and latency budgets
--Hardening control-plane safety and configuration management
--Evaluating selective active-active writes for low-risk data only
-These decisions should be driven by real traffic patterns and incident data rather than theoretical optimization.
+---
+
+## (8) Write Unavailability Behavior (Home Unavailable)
+- Writes do **not** reroute to other shards.
+- If home cell down:
+  - Tier-2 ops: **fail closed**
+  - Tier-1 ops: **queue** with per-user FIFO ordering
+
+Queue semantics:
+- per-user FIFO
+- TTL on queued events
+- rate-limited drain on recovery
+- idempotency required for writes
+- queued events carry target shard + placement version
+
+---
+
+## (9) Data Residency
+- Sensitive reads (PII/export) must not be served outside residency boundary.
+- Read routing enforces residency: if serving region violates residency, route to home region.
+
+---
+
+## (10) Validation (Simulations)
+Python simulations validate:
+- blast radius (region vs cell vs shard)
+- security gating across dependency failures
+- degraded mode behavior (queue vs fail closed)
+- sharding fairness (HRW distribution + traffic skew)
