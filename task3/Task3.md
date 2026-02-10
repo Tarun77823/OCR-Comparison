@@ -1,202 +1,221 @@
-# Internship Task-3  
-## Global Data Residency, Tiered Security Gating & Resilient Operations
-
-## (1) Problem Statement — From First Principles
-
-At the most basic level, any system does only two things:
--Store information  
--Retrieve information  
-
-In a small, single-region system, this is trivial:  
-data goes into one place, and the application reads it back.
-
-At global scale, this model breaks down.
-
-When users and data are distributed across regions, the system must now handle:
-
-1. Latency — users are far from where data lives  
-2. Scale — millions of users, billions of requests  
-3. Security — not all data can be accessed by everyone  
-4. Compliance — data belongs to the user, not the platform  
-
-Modern regulations (GDPR-style data ownership, HIPAA-style access controls) require:
-
-- Data to remain in specific geographic regions  
-- Access to be purpose-limited and auditable  
-- Immediate denial after deletion requests  
-- Proof that enforcement decisions were actually applied  
-
-Task-3 demonstrates how to design and enforce these guarantees without destroying system availability.
-
----
-
-## (2) Why Task-1 Exists — Cost, Scale & Tiered Decisions
-
-Task-1 focused on OCR processing and scaling reality.
-
-It demonstrated that:
-- Cost scales linearly with volume  
-- Blindly using expensive AI everywhere does not scale  
-- Systems must choose cheap paths first and escalate only when necessary 
-
-This introduced three critical concepts:
-
-1. Tiered decision making  
-2. Confidence-based escalation  
-3. Cost-aware architecture  
-
-These ideas directly reappear in Task-3 as:
-- Safe vs sensitive operations  
-- Degraded-mode vs fail-closed behavior  
-- Selective enforcement instead of global shutdowns  
-
----
-
-## (3) Why Task-2 Exists — Global Routing & Failure Domains
-
-Task-2 established the execution fabric required for Task-3.
-
-It introduced:
-- Deterministic sharding (HRW / rendezvous hashing)  
-- Placement service with versioning  
-- Read-local / write-home routing  
-- Tier-based security gates  
-- Degraded-mode queueing  
-- Blast-radius reduction  
-
-This allows the system to:
-- Know where data lives 
-- Know where requests must execute 
-- Fail safely during partial outages  
-
-Task-3 builds directly on this routing and dependency model.
-
----
-
-## (4) Core Principle of Task-3
-
- Not all operations are equal.
-
-A resilient system must distinguish between low-risk and high-risk actions.
-
-### Safe operations (low risk)
-- View balance  
-- View transaction history  
-- View basic profile  
-
-### Sensitive operations (high risk)
-- Transfer money  
-- Add beneficiary  
-- Export data  
-- Change permissions  
-
-During outages or dependency failures:
-
-|        **Operation Type**        |        **Behavior**         |
-| Safe reads                       |    Allowed (degraded mode)  |
-| Sensitive operations             |    Denied (fail closed)     |
-
-This ensures usability without violating trust or compliance.
-
----
-
-## (5) Data Classification Model
-
-Each data object is assigned a data tier:
-
-| Tier                  | Meaning                      |
-| DATA_TIER_0           | Public                       |
-| DATA_TIER_1           | Low-risk personal data       |
-| DATA_TIER_2           | Sensitive personal data      |
-| DATA_TIER_3           | Regulated / highly sensitive |
-
-Rules enforced:
-- Tier-2 and Tier-3 fail closed.
-- Tier-0 and Tier-1 may degrade
-- Protecting sensitive data always takes priority over availability
-
----
-
-## (6) Residency Enforcement
-
-Sensitive data must remain in its home region.
-
-Example:
-- EU user data must be processed and decrypted only in the EU  
-
-Enforcement is done by:
-- Task-2 routing (home shard resolution)  
-- Region-bound encryption keys  
-- Explicit residency checks during enforcement  
-
-Even with permission, data cannot be decrypted outside its home region.
-
----
-
-## (7) Purpose-Based Access Control
-
-Access is defined not only by who, but also by why.
-
-Each request declares a purpose, such as:
-- lending  
-- payment  
-- operations  
-
-Rules:
-- Grants are time-bounded  
-- Grants are purpose-bound  
-- Only minimum-necessary operations are allowed  
-
-This prevents:
-- Over-privileged access  
-- Lateral data misuse  
-- Silent scope expansion  
-
----
-
-## (8) Degraded Mode vs Fail-Closed Behavior
-
-The system supports two execution modes:
-
-### Degraded Mode
-- Used for safe reads  
-- Maintains usability  
-- No irreversible changes  
-
-### Fail-Closed Mode
-- Used for sensitive operations  
-- Blocks execution when dependencies are unhealthy  
-- Preserves security and compliance  
-
----
-
-## (9) Deletion & Crypto-Erasure
-
-When a user requests deletion:
-
-1. A tombstone is written immediately  
-2. All future access is denied  
-3. Derived data is cleared  
-4. Encryption keys are rendered unusable  
-
-This guarantees:
-- Immediate compliance  
-- No data resurrection  
-- Safe background cleanup  
-
----
-
-## (10) Auditability & Evidence
-
-Every decision (ALLOW or DENY) is written to a tamper-evident audit ledger.
-
-Each audit event includes:
-- User, role, purpose  
-- Operation and decision  
-- Region, shard, placement version  
-- Cryptographic hash linking to the previous event  
-
-The audit chain is verifiable and immutable.
-
----
-
+# Task-3 — Global Data Residency, Compliance & Tiered Resilience
+##  Executive Summary
+
+At small scale, systems are simple: data goes in, data comes out.
+
+At global scale, this breaks due to:
+- Latency (distance between users and data)
+- Scale (volume of users and requests)
+- Security (fraud, insider risk, abuse)
+- Compliance (GDPR, HIPAA, financial regulations)
+
+This design demonstrates how real production systems handle these constraints by:
+- Separating safe reads from sensitive operations
+- Enforcing data residency at runtime
+- Failing closed for high-risk actions
+- Remaining usable during partial outages
+- Producing tamper-evident audit evidence
+- Supporting right-to-erasure without breaking the system
+
+All concepts are backed by working code + tests, and are built directly on Task-1 and Task-2.
+
+## 1. Why Task-1 and Task-2 exist
+
+### Task-1 → Local-First, Confidence-Based Decisions
+Task-1 established:
+- Local processing first
+- Escalation only when confidence is insufficient
+- Cost-aware scaling
+
+Task-3 applies the same idea:
+- Serve low-risk reads locally
+- Escalate high-risk actions to stricter enforcement
+- Deny when confidence (policy, audit, KMS, risk) is insufficient
+
+### Task-2 → Infrastructure Foundation
+Task-3 directly uses Task-2 primitives:
+- HRW shard assignment
+- Placement service (shard → region / cell)
+- Router returns (shard_id, placement_version)
+- Dependency health gates
+- Degraded-mode routing
+
+**Task-3 answers why Task-2 matters**:
+- Compliance enforcement is impossible without correct routing, placement evidence, and controlled degradation.
+
+## 2. Data Classification & Risk Model
+
+| **Tier**                       | **Description**                               |
+|--------------------------------|-----------------------------------------------|
+| DATA_TIER_0                    | Public / non-sensitive data                   |
+| DATA_TIER_1                    | Low-risk user data (profiles, balances)       |
+| DATA_TIER_2                    | Sensitive personal data                       |
+| DATA_TIER_3                    | Regulated data (financial, medical, identity) |
+
+
+## 3. Residency & Compliance Rules 
+
+| **Tier** | **Storage**                   | **Who May Access**     | **Time Bounds**         | **Retention & Deletion** |
+|----------|-------------------------------|------------------------|-------------------------|--------------------------|
+| T0       | Global replication            | Anyone                 | None                    | Cache TTL                |
+| T1       | Multi-region read replicas    | Authenticated users    | Short policy TTL        | Remove read models       |
+| T2       | Stored in home region         | Owner                  | Time-bounded grants     | Tombstone                |
+| T3       | Home region only              | Owner                  | Strict windows          | Tombstone                |
+
+**Key Rule:**  
+T2 and T3 fail closed when compliance dependencies are unavailable.
+
+## 4. Tiered Operations Model (Banking Example)
+
+### Allowed During Partial Outage (Tier-1)
+- view_balance
+- view_transaction_history
+- view_profile_basic
+
+### Blocked During Partial Outage (Tier-2)
+- transfer_money
+- add_beneficiary
+- export_data
+- change_permissions
+
+**Reasoning:**  
+User experience is preserved while preventing fraud or regulatory violations.
+
+## 5. Architecture & Enforcement Points (ASCII Diagram)
+Client
+|
+[Edge / Gateway]
+|-- auth (must succeed)
+|
+|-- Tier-1 Safe Reads ------------------> [Read Models]
+| (replicated, local)
+|
+|-- Tier-2 Sensitive Ops --> [Policy Engine]
+|
+v
+[Residency Gate]
+|
+[Task-2 Router]
+(shard_id + placement_version)
+|
+[KMS Region Gate]
+|
+[Home-Region Storage]
+
+ALL allow/deny decisions →
+[Audit Ledger]
+(hash-chained, immutable)
+
+## 6. Audit Event Schema
+
+### Event Types
+- CREATE / UPLOAD
+- READ
+- EXPORT
+- SHARE_GRANT
+- SHARE_REVOKE
+- DELETE_REQUESTED
+- DELETE_COMPLETED
+- POLICY_CHANGE
+- KEY_REVOKE
+
+### Required Fields
+- event_id
+- timestamp
+- actor_id / actor_role
+- object_id
+- data_tier
+- home_region
+- serving_region
+- shard_id
+- placement_version
+- purpose
+- decision (ALLOW / DENY)
+- reason
+- policy_version
+- prev_hash
+- hash
+
+### Integrity Guarantee
+- Events are hash-chained
+- Any modification breaks verification
+- Chain validation enforced by tests
+
+## 7. Deletion & Right-to-Erasure
+
+Deletion is handled safely using:
+1. Tombstone → immediate deny
+2. Derived cleanup → indexes, embeddings, OCR outputs
+3. Crypto-erasure → KMS key invalidation
+
+This ensures deleted data cannot be resurrected from backups.
+
+## 8. Tradeoffs
+
+### Performance
+- Home-region enforcement increases latency
+- Read replicas mitigate UX impact
+
+### Cost
+- KMS, audits, routing metadata add overhead
+- Accepted cost for compliance
+
+### UX
+- Sensitive actions blocked during outages
+- Safer than allowing violations
+
+### Operational Complexity
+- Requires consistent placement metadata
+- Requires strict audit hygiene
+
+## 9. MVP Recommendation
+
+### Implement First
+1. Tiered operation gating
+2. Residency enforcement
+3. Audit schema + hash chaining
+4. Tombstone deletion
+
+### Defer
+- Fine-grained ABAC policies
+- Jurisdiction-specific retention rules
+- Multi-party approvals
+
+## 10. Scenario Walkthroughs (Required)
+
+### Scenario 1 — EU Owner → US Lender
+- Data is DATA_TIER_3, home = EU
+- US access denied locally
+- Allowed only via EU proxy
+- KMS decrypt allowed only in EU
+- Audit logs shard + placement_version
+
+
+### Scenario 2 — US Patient → Medical Clinic
+- Purpose = treatment
+- Minimum-necessary access enforced
+- Export and resharing denied
+- Access time-bounded and audited
+
+### Scenario 3 — Property Management (3 Agents)
+- Tenant boundary enforced
+- Agents share within tenant only
+- Cross-property access denied
+- Audit ties access to tenant_id
+
+### Scenario 4 — Storage Breach
+- Attacker gets encrypted blobs only
+- No KMS unwrap outside region
+- Crypto-erasure prevents decrypt
+- Evidence exists in audit + KMS logs
+
+## 11. Code & Execution
+python -m task3.scenario_runner_v3
+python -m task3.tests_v3
+
+## Final Statement
+This system reflects how real banking, healthcare, and regulated SaaS platforms are built:
+
+- Availability without recklessness
+- Security without total outages
+- Compliance enforced by architecture, not documents
