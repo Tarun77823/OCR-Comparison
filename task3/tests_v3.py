@@ -26,12 +26,12 @@ def test_safe_reads_work_when_policy_down_self_only():
     gw, ledger = build()
     gw.read_models.set_balance("u1", 10.0)
 
-    ctx_self = RequestContext("u1", "user", "us", "us", "ops")
+    ctx_self = RequestContext("u1", "user", "us", "us", "ops", "t1")
     deps = Dependencies(policy_ok=False, risk_ok=False, audit_ok=False, kms_ok=False)
     ok, _ = gw.handle_safe_read("view_balance", "u1", "t1", ctx_self, deps)
     assert ok is True
 
-    ctx_other = RequestContext("u2", "user", "us", "us", "ops")
+    ctx_other = RequestContext("u2", "user", "us", "us", "ops", "t1")
     ok, _ = gw.handle_safe_read("view_balance", "u1", "t1", ctx_other, deps)
     assert ok is False
 
@@ -39,7 +39,7 @@ def test_sensitive_fails_closed_when_deps_down():
     gw, ledger = build()
     obj = DataObject("o1", "DATA_TIER_3", "eu", "t1", "owner-eu")
     gw.create_object(obj)
-    ctx = RequestContext("owner-eu", "admin", "eu", "eu", "ops")
+    ctx = RequestContext("owner-eu", "admin", "eu", "eu", "ops", "t1")
     deps = Dependencies(policy_ok=False, risk_ok=False, audit_ok=False, kms_ok=False)
     ok, _ = gw.handle_sensitive("transfer_money", obj, ctx, deps)
     assert ok is False
@@ -52,13 +52,27 @@ def test_residency_blocks_sensitive_outside_home_region():
     now = time.time()
     gw.share(ShareGrant("g1", obj.object_id, obj.owner_user_id, "lender", "lending", now, now + 1000))
 
-    ctx_us = RequestContext("lender", "lender", "us", "us", "lending")
+    ctx_us = RequestContext("lender", "lender", "us", "us", "lending", "t1")
     ok, _ = gw.handle_sensitive("export_data", obj, ctx_us, Dependencies())
     assert ok is False
 
-    ctx_eu = RequestContext("lender", "lender", "us", "eu", "lending")
+    ctx_eu = RequestContext("lender", "lender", "us", "eu", "lending", "t1")
     ok, _ = gw.handle_sensitive("export_data", obj, ctx_eu, Dependencies())
     assert ok is True
+
+def test_tenant_isolation_blocks_cross_tenant():
+    gw, ledger = build()
+    obj = DataObject("oX", "DATA_TIER_3", "eu", "tenant-A", "owner-eu")
+    gw.create_object(obj)
+
+    now = time.time()
+    gw.share(ShareGrant("gX", obj.object_id, obj.owner_user_id, "agent-1", "lending", now, now + 1000))
+
+    # Correct region, valid grant, but wrong tenant context -> DENY
+    ctx_wrong_tenant = RequestContext("agent-1", "lender", "us", "eu", "lending", "tenant-B")
+    ok, reason = gw.handle_sensitive("export_data", obj, ctx_wrong_tenant, Dependencies())
+    assert ok is False
+    assert "tenant" in reason.lower()
 
 def test_deletion_blocks_and_crypto_erasure_blocks_decrypt():
     gw, ledger = build()
@@ -66,14 +80,14 @@ def test_deletion_blocks_and_crypto_erasure_blocks_decrypt():
     gw.create_object(obj)
     gw.gdpr_delete(obj)
 
-    ctx_eu = RequestContext("owner-eu", "admin", "eu", "eu", "ops")
+    ctx_eu = RequestContext("owner-eu", "admin", "eu", "eu", "ops", "t1")
     ok, _ = gw.handle_sensitive("export_data", obj, ctx_eu, Dependencies())
     assert ok is False
 
 def test_audit_chain_valid():
     gw, ledger = build()
     gw.read_models.set_balance("u9", 9.0)
-    ctx = RequestContext("u9", "user", "us", "us", "ops")
+    ctx = RequestContext("u9", "user", "us", "us", "ops", "t9")
     ok, _ = gw.handle_safe_read("view_balance", "u9", "t9", ctx, Dependencies(policy_ok=False))
     assert ok is True
     assert ledger.verify_chain() is True
@@ -82,6 +96,7 @@ def main():
     test_safe_reads_work_when_policy_down_self_only()
     test_sensitive_fails_closed_when_deps_down()
     test_residency_blocks_sensitive_outside_home_region()
+    test_tenant_isolation_blocks_cross_tenant()
     test_deletion_blocks_and_crypto_erasure_blocks_decrypt()
     test_audit_chain_valid()
     print("ALL TESTS PASSED")

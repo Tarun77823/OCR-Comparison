@@ -111,7 +111,7 @@ class EnforcementGateway:
         self._wrapped_keys: Dict[str, WrappedKey] = {}
 
     def _deps_healthy_sensitive(self, deps: Dependencies) -> bool:
-        # Fail closed for sensitive actions 
+        # Fail closed for sensitive actions
         return deps.auth_ok and deps.policy_ok and deps.risk_ok and deps.audit_ok and deps.kms_ok
 
     def create_object(self, obj: DataObject) -> None:
@@ -130,7 +130,7 @@ class EnforcementGateway:
         self.kms.revoke_object(obj.object_id)
         self.read_models.delete_user(obj.owner_user_id)
 
-    # Tier-1 Safe Reads — available even if Anything is down 
+    # Tier-1 Safe Reads — available even if Anything is down
     def handle_safe_read(
         self,
         op: str,
@@ -146,11 +146,17 @@ class EnforcementGateway:
         if not deps.auth_ok:
             return False, "DENY: auth unavailable"
 
+        # Tenant boundary for safe reads too
+        if not tenant_id or not ctx.tenant_id:
+            return False, "DENY: missing tenant context"
+        if tenant_id != ctx.tenant_id:
+            return False, "DENY: tenant isolation (mismatched tenant context)"
+
         # If policy is down, allow only self-read for safety
         if not deps.policy_ok and ctx.actor_user_id != subject_user_id:
             return False, "DENY: policy down (safe reads limited to self)"
 
-        # Serve from read model 
+        # Serve from read model
         if op == "view_balance":
             _ = self.read_models.get_balance(subject_user_id)
         elif op == "view_transaction_history":
@@ -166,7 +172,7 @@ class EnforcementGateway:
         if self.deletions.is_deleted(obj.object_id):
             return False, "DENY: deleted (tombstone)"
 
-        # Using Task-2 Router to record shard 
+        # Using Task-2 Router to record shard
         shard, loc, pv, msg = self.router.resolve_home(obj.owner_user_id, deps)
         if not shard:
             return False, f"DENY: placement unavailable ({msg})"

@@ -4,8 +4,8 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class DataObject:
     object_id: str
-    data_tier: str          
-    home_region: str         
+    data_tier: str
+    home_region: str
     tenant_id: str
     owner_user_id: str
 
@@ -15,7 +15,7 @@ class ShareGrant:
     object_id: str
     owner_user_id: str
     grantee_user_id: str
-    purpose: str             
+    purpose: str
     start_ts: float
     end_ts: float
     revoked: bool = False
@@ -23,7 +23,8 @@ class ShareGrant:
 @dataclass(frozen=True)
 class RequestContext:
     actor_user_id: str
-    actor_role: str       
+    actor_role: str
     actor_residency: str
     serving_region: str
     purpose: str
+    tenant_id: str

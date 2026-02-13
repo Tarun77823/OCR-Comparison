@@ -11,7 +11,7 @@ SENSITIVE_OPS = {"transfer_money", "add_beneficiary", "export_data", "change_per
 
 PURPOSE_ALLOWLIST = {
     "lending": {"export_data", "view_transaction_history"},
-    "treatment": {"export_data", "view_transaction_history"},
+    "treatment": {"view_transaction_history"},
     "payment": {"view_transaction_history"},
     "operations": {"view_transaction_history"},
     "ops": {"view_profile_basic", "view_transaction_history"},
@@ -28,16 +28,19 @@ def evaluate_sensitive(
     deps_healthy_for_sensitive: bool,
     now: Optional[float] = None
 ) -> Tuple[bool, str]:
-    """
-    Sensitive path evaluation (Tier-2/3 vault).
-    Safe reads are intentionally NOT allowed here (they must use a read-safe model).
-    """
+
     now = now if now is not None else time.time()
 
     if not ctx.actor_user_id or not ctx.purpose:
         return False, "DENY: missing actor or purpose"
     if not obj.tenant_id:
-        return False, "DENY: missing tenant"
+        return False, "DENY: missing tenant on object"
+
+    # tenant isolation is enforced here 
+    if not ctx.tenant_id:
+        return False, "DENY: missing request tenant"
+    if ctx.tenant_id != obj.tenant_id:
+        return False, "DENY: tenant isolation (cross-tenant access)"
 
     # Tier-2/3 fail closed if compliance dependencies are unhealthy
     if obj.data_tier in FAIL_CLOSED_DATA and not deps_healthy_for_sensitive:
@@ -47,7 +50,7 @@ def evaluate_sensitive(
     if obj.data_tier in FAIL_CLOSED_DATA and ctx.serving_region != obj.home_region:
         return False, "DENY: residency requires home-region servicing"
 
-    # Owner allowed after residency checks
+    # Owner allowed after tenant+residency checks
     if ctx.actor_user_id == obj.owner_user_id:
         return True, "ALLOW: owner"
 
@@ -55,7 +58,7 @@ def evaluate_sensitive(
     if op in SAFE_READS:
         return False, "DENY: safe read must use read-model path"
 
-    # Sensitive ops require admin
+    # Sensitive ops require admin or a valid grant
     if op in SENSITIVE_OPS:
         if ctx.actor_role == "admin":
             return True, "ALLOW: admin"

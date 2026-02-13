@@ -64,6 +64,8 @@ Task-3 directly uses Task-2 primitives:
 
 **Key Rule:**  
 T2 and T3 fail closed when compliance dependencies are unavailable.
+All Tier-2/3 access must satisfy tenant isolation.
+
 
 ## 4. Tiered Operations Model (Banking Example)
 
@@ -91,6 +93,7 @@ Client
 | (replicated, local)
 |
 |-- Tier-2 Sensitive Ops --> [Policy Engine]
+|                        (enforces purpose, grants, tenant isolation, and residency)
 |
 v
 [Residency Gate]
@@ -122,6 +125,7 @@ ALL allow/deny decisions →
 ### Required Fields
 - event_id
 - timestamp
+- tenant_id 
 - actor_id / actor_role
 - object_id
 - data_tier
@@ -196,12 +200,16 @@ This ensures deleted data cannot be resurrected from backups.
 - Minimum-necessary access enforced
 - Export and resharing denied
 - Access time-bounded and audited
+- Export and resharing denied 
 
 ### Scenario 3 — Property Management (3 Agents)
-- Tenant boundary enforced
-- Agents share within tenant only
-- Cross-property access denied
-- Audit ties access to tenant_id
+- Each property is isolated by tenant_id
+- RequestContext carries tenant_id for every request
+- Policy enforces ctx.tenant_id == obj.tenant_id
+- Cross-property (cross-tenant) access is denied
+- Even with valid grants, cross-tenant access is blocked
+- Audit logs include tenant-bound access context
+
 
 ### Scenario 4 — Storage Breach
 - Attacker gets encrypted blobs only
@@ -219,3 +227,4 @@ This system reflects how real banking, healthcare, and regulated SaaS platforms 
 - Availability without recklessness
 - Security without total outages
 - Compliance enforced by architecture, not documents
+- Multi-tenant isolation enforced at policy layer 
