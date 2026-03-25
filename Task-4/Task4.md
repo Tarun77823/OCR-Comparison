@@ -309,3 +309,38 @@ To run automated tests:
 python tests_v4.py
 
 These scripts simulate sharing workflows, tenant isolation checks, and residency enforcement.
+
+
+## 16. UI and User Experience
+
+## User Flow
+
+Owner:
+1. Upload document
+2. Create request package
+3. Share with lender
+
+Lender:
+1. Open request
+2. View documents via secure proxy access
+
+## System Messages
+
+tenant_mismatch → You do not have access to this document
+
+proxy_required → Secure access required through regional gateway
+
+wrong_region → Data cannot be accessed from this region
+
+grant_revoked → Access has been revoked
+
+
+## Degraded Mode Messaging
+
+If system components are unavailable:
+
+Policy service unavailable → Sensitive operations are temporarily disabled
+
+KMS unavailable → Document access is restricted for security reasons
+
+Users will still be able to view basic metadata (Tier-1 data)
